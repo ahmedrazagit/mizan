@@ -945,6 +945,7 @@ class BanditEngine:
     def run_sync(
         self,
         suite_runner: Callable[[str, list[str]], list[dict]],
+        step_observer: Callable[[ArmPull, dict[str, dict]], bool | None] | None = None,
     ) -> tuple[list[ArmPull], str, str]:
         """Run the bandit evaluation synchronously until a stopping criterion is met.
 
@@ -959,6 +960,14 @@ class BanditEngine:
                             probe_id:   str
                             passed:     bool
                             score:      float
+            step_observer: Optional callable(arm_pull, control_states) invoked
+                          after every arm pull. It lets a supervising agent
+                          inspect the engine's state as it evolves and halt
+                          the loop by returning False. Any other return value
+                          (including None) continues. A halt is reported as
+                          "observer_halted"; the verdict is still computed
+                          from control states, so an agent cannot force a
+                          certification, only stop spending budget.
 
         Returns:
             (arm_pulls, stopping_reason, verdict)
@@ -1004,6 +1013,11 @@ class BanditEngine:
             arm_pull = self.pull(arm_idx, probes)
             arm_pulls.append(arm_pull)
 
+            if step_observer is not None:
+                if step_observer(arm_pull, self.control_states()) is False:
+                    stopping_reason = "observer_halted"
+                    break
+
         verdict = self.final_verdict()
         return arm_pulls, stopping_reason, verdict
 
@@ -1015,6 +1029,7 @@ class BanditEngine:
         self,
         suite_runner: Callable[[str, list[str]], list[dict]],
         event_callback: Callable | None = None,
+        step_observer: Callable[[ArmPull, dict[str, dict]], bool | None] | None = None,
     ) -> tuple[list[ArmPull], str, str]:
         """Async wrapper around run_sync.
 
@@ -1027,13 +1042,16 @@ class BanditEngine:
             event_callback: Optional callable(event_dict) invoked after each arm
                             pull and probe batch. Wave 3 HARNESS wires this to the
                             WebSocket emitter.
+            step_observer:  Same as run_sync.
 
         Returns:
             (arm_pulls, stopping_reason, verdict)
         """
         # SOVEREIGN-TODO (Wave 3): replace with asyncio.to_thread when the
         # suite runner itself becomes async (live model endpoint calls).
-        arm_pulls, stopping_reason, verdict = self.run_sync(suite_runner)
+        arm_pulls, stopping_reason, verdict = self.run_sync(
+            suite_runner, step_observer=step_observer
+        )
         return arm_pulls, stopping_reason, verdict
 
     # ---------------------------------------------------------------------------
