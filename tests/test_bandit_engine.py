@@ -963,3 +963,42 @@ def test_undecided_mandatory_control_blocks_certification() -> None:
         "required_pass_rate, treating empirical rate as a substitute for a "
         "statistical bound.  That is wrong.)"
     )
+
+
+# ---------------------------------------------------------------------------
+# MCSS recency weighting: the warm-start adapts to drift
+# ---------------------------------------------------------------------------
+
+def _mcss_pull(suite_id: str, reward: float):
+    from mizan.api.schemas import ArmPull
+    return ArmPull(
+        step=1, suite_id=suite_id, arm_index=0, reward=reward,
+        ucb_value=0.0, posterior_state={}, cumulative_queries=1,
+    )
+
+
+def test_mcss_decay_lets_recent_evaluations_reorder_suites() -> None:
+    """With decay, a suite that stops being informative drops in the ordering."""
+    suite_ids = ["suite-a", "suite-b"]
+    history = [
+        [_mcss_pull("suite-a", 0.9), _mcss_pull("suite-b", 0.2)],
+        [_mcss_pull("suite-a", 0.9), _mcss_pull("suite-b", 0.2)],
+        [_mcss_pull("suite-a", 0.9), _mcss_pull("suite-b", 0.2)],
+        [_mcss_pull("suite-a", 0.1), _mcss_pull("suite-b", 0.8)],
+    ]
+
+    cumulative = MCSSLayer.fresh("drift", suite_ids)
+    recency = MCSSLayer.fresh("drift", suite_ids)
+    for pulls in history:
+        cumulative.update(pulls)
+        recency.update(pulls, decay=0.7)
+
+    assert cumulative.get_suite_ordering()[0] == "suite-a"
+    assert recency.get_suite_ordering()[0] == "suite-b"
+    assert recency.total_evaluations == 4
+
+
+def test_mcss_decay_rejects_out_of_range_values() -> None:
+    layer = MCSSLayer.fresh("drift", ["suite-a"])
+    with pytest.raises(ValueError):
+        layer.update([_mcss_pull("suite-a", 0.5)], decay=0.0)

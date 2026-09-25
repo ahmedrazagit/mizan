@@ -189,15 +189,26 @@ class MCSSLayer:
     # Update after evaluation
     # ---------------------------------------------------------------------------
 
-    def update(self, arm_pulls: list[ArmPull]) -> None:
+    def update(self, arm_pulls: list[ArmPull], decay: float | None = None) -> None:
         """Absorb arm-pull results from a completed evaluation.
 
-        Updates the running mean reward per suite using a cumulative mean
-        formula: new_mean = (old_mean * old_pulls + new_total_reward) / (old_pulls + new_pulls).
+        With decay=None (default), updates the running mean reward per suite
+        using a cumulative mean formula:
+        new_mean = (old_mean * old_pulls + new_total_reward) / (old_pulls + new_pulls).
+
+        With decay in (0, 1], updates an exponential moving average instead:
+        new_mean = (1 - decay) * old_mean + decay * reward.
+        Recent evaluations then outweigh old ones, so the warm-start adapts
+        when the models under evaluation drift (a suite that used to be
+        informative stops being so) rather than being anchored to history.
+        The first observation for a suite always seeds the mean directly.
 
         This is an online update: no historical data is lost when new results
         arrive. The mean converges as total_evaluations grows.
         """
+        if decay is not None and not 0.0 < decay <= 1.0:
+            raise ValueError(f"decay must be in (0, 1], got {decay}")
+
         for pull in arm_pulls:
             suite_id = pull.suite_id
             if suite_id not in self._arm_statistics:
@@ -205,9 +216,13 @@ class MCSSLayer:
             stats = self._arm_statistics[suite_id]
             old_pulls = stats["pulls"]
             old_mean = stats["mean_reward"]
-            # Update running mean.
             new_pulls = old_pulls + 1
-            new_mean = (old_mean * old_pulls + pull.reward) / new_pulls
+            if decay is None or old_pulls == 0:
+                # Update running mean.
+                new_mean = (old_mean * old_pulls + pull.reward) / new_pulls
+            else:
+                # Update recency-weighted mean.
+                new_mean = (1.0 - decay) * old_mean + decay * pull.reward
             stats["pulls"] = new_pulls
             stats["mean_reward"] = round(new_mean, 8)
 
