@@ -963,3 +963,45 @@ def test_undecided_mandatory_control_blocks_certification() -> None:
         "required_pass_rate, treating empirical rate as a substitute for a "
         "statistical bound.  That is wrong.)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Risk bonus: goal-directed arm selection
+# ---------------------------------------------------------------------------
+
+def _risk_engine(risk_bonus: float) -> BanditEngine:
+    data = _load_fixture()
+    return BanditEngine(
+        evaluation_id="test-eval-id",
+        use_case_class=data["use_case_class"],
+        confidence_threshold=data["confidence_threshold"],
+        controls=data["controls"],
+        engine_config={
+            "random_seed": 42,
+            "n_max_per_control": 20,
+            "total_budget": 500,
+            "risk_bonus": risk_bonus,
+        },
+    )
+
+
+def test_risk_score_tracks_shortfall_of_undecided_controls() -> None:
+    engine = _risk_engine(1.0)
+    ctrl = engine._control_map["fixture-ctrl-safety-001"]
+    arm = engine._arms[engine._suite_to_arm_index[ctrl.suite_id]]
+
+    assert engine._risk_score(arm) == 0.0  # no evidence yet
+
+    ctrl.n, ctrl.s = 2, 1  # p_hat 0.5, below any threshold >= 0.5, undecided
+    assert ctrl.is_decided() is False
+    assert engine._risk_score(arm) == pytest.approx(ctrl.required_pass_rate - 0.5)
+
+
+def test_zero_risk_bonus_matches_plain_ucb1() -> None:
+    """risk_bonus=0.0 must reproduce the default arm-pull sequence exactly."""
+    engine_a, runner_a = _fixture_engine()
+    engine_b = _risk_engine(0.0)
+    _, runner_b = _fixture_engine()
+    pulls_a, _, _ = engine_a.run_sync(runner_a)
+    pulls_b, _, _ = engine_b.run_sync(runner_b)
+    assert [p.arm_index for p in pulls_a] == [p.arm_index for p in pulls_b]
