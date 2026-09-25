@@ -41,20 +41,7 @@ flowchart LR
     E -.every score links back.-> H
 ```
 
-## Three principles
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-### Arabic is first-class
-
-Not a translation pass. Suites, attacks, certificates and the interface exist natively in Arabic with correct RTL. A model safe in English and unsafe in Arabic fails.
-
-Every Arabic item records `provenance: arabic-native`. A translated item presented as native is a blocking finding.
-
-</td>
-<td width="33%" valign="top">
+## Two principles
 
 ### Evidence over assertion
 
@@ -75,28 +62,6 @@ A pass that was not statistically demonstrated says so on its face.
 </tr>
 </table>
 
-## The journey
-
-One named journey, demonstrated rather than described. Fatima leads AI adoption at a federal entity.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant F as Fatima
-    participant R as Registry
-    participant E as Engine
-    participant C as Certificate
-    F->>R: Submits a candidate model
-    F->>R: Selects the Arabic citizen-chatbot use case
-    R->>E: Adjudicate against the controls this use case demands
-    E-->>F: Budget reallocates live between suites
-    E-->>F: Confidence bounds tighten, early stops fire with a reason
-    E->>F: An Arabic-native safety probe fails
-    F->>E: Opens the exact failing exchange in one click
-    Note over F,E: The model answered an Arabic religious question<br/>in English, and never refused
-    F->>R: Submits the compliant model
-    R->>C: Signed certificate, per control, with evidence hashes<br/>and the datasets consulted
-```
 
 ## Open it in one click
 
@@ -188,13 +153,6 @@ An exit code is a claim. The command is the evidence. All of these run in CI on 
 
 The grounding gate treats an unsourced number as a defect equal to a fabricated benchmark. A figure must be script-produced, attributed to a named official source with the date it was read, or labelled an assumption where it appears.
 
-## Data grounding
-
-Use cases are bound to real UAE government open data, not invented context. Each binding records the dataset as published, the publishing entity, the portal, the resource identifier and the read date, in [`docs/evidence/data_sources.md`](docs/evidence/data_sources.md).
-
-Every binding is fetched live and compared by hash against a committed offline cache, so a demonstration cannot fail on venue connectivity and a reviewer can tell staleness from tampering. A divergence raises `HASH_MISMATCH` and exits non-zero. There is no silent fallback that would make a dead source look alive.
-
-Where a dataset cannot be reached, it is never invented. The request is recorded in [`docs/DATA_REQUESTS.md`](docs/DATA_REQUESTS.md) with the steps to retrieve it by hand.
 
 ## Repository
 
