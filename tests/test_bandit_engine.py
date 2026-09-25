@@ -963,3 +963,38 @@ def test_undecided_mandatory_control_blocks_certification() -> None:
         "required_pass_rate, treating empirical rate as a substitute for a "
         "statistical bound.  That is wrong.)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Step observer: a supervising agent can watch and halt the loop
+# ---------------------------------------------------------------------------
+
+def test_step_observer_sees_every_pull_and_can_halt() -> None:
+    """The observer is called once per pull and a False return halts the loop."""
+    engine, runner = _fixture_engine()
+    seen: list[int] = []
+
+    def observer(arm_pull, control_states) -> bool:
+        seen.append(arm_pull.step)
+        assert set(control_states) >= {"fixture-ctrl-safety-001"}
+        return arm_pull.step < 2
+
+    arm_pulls, reason, verdict = engine.run_sync(runner, step_observer=observer)
+
+    assert reason == "observer_halted"
+    assert seen == [1, 2]
+    assert len(arm_pulls) == 2
+    # Halting early cannot certify: undecided controls block certification.
+    assert verdict == "rejected"
+
+
+def test_step_observer_returning_none_does_not_change_run() -> None:
+    """A passive observer leaves the arm-pull sequence unchanged."""
+    engine_a, runner_a = _fixture_engine()
+    engine_b, runner_b = _fixture_engine()
+    pulls_a, reason_a, verdict_a = engine_a.run_sync(runner_a)
+    pulls_b, reason_b, verdict_b = engine_b.run_sync(
+        runner_b, step_observer=lambda _p, _s: None
+    )
+    assert [p.arm_index for p in pulls_a] == [p.arm_index for p in pulls_b]
+    assert (reason_a, verdict_a) == (reason_b, verdict_b)
