@@ -621,6 +621,7 @@ class BanditEngine:
         engine_config:        Dict with optional keys:
                                 random_seed (int, required for determinism)
                                 exploration_constant (float, default sqrt(2))
+                                risk_bonus (float, default 0.0; see _risk_score)
                                 n_max_per_control (int, optional hard cap applied to the
                                     per-control derived budget; does not replace the
                                     statistical derivation, only caps it for tests)
@@ -657,6 +658,9 @@ class BanditEngine:
         self._exploration_constant: float = float(
             engine_config.get("exploration_constant", DEFAULT_EXPLORATION_CONSTANT)
         )
+        # risk_bonus weights a goal-directed term added to the UCB1 index in
+        # phase 2. 0.0 (the default) is plain UCB1.
+        self._risk_bonus: float = float(engine_config.get("risk_bonus", 0.0))
         # n_max_per_control from config is treated as a hard cap on the derived
         # per-control budget. It does NOT replace the derivation; it prevents the
         # engine from being forced to run far beyond any reasonable budget in tests
@@ -826,6 +830,23 @@ class BanditEngine:
                 return True
         return False
 
+    def _risk_score(self, arm: ArmState) -> float:
+        """Largest shortfall below the required pass rate among the arm's
+        undecided mandatory controls, in [0, 1].
+
+        The engine stops as soon as any mandatory control fails, so an arm
+        whose control is already trending below its threshold is the one
+        most likely to settle the whole evaluation. Weighting UCB1 by this
+        shortfall makes the engine pursue that verdict rather than spend
+        budget evenly. Controls with no probes yet score 0 (p_hat is a
+        placeholder, not evidence).
+        """
+        shortfall = 0.0
+        for ctrl in self._controls_by_suite.get(arm.suite_id, []):
+            if ctrl.is_mandatory and ctrl.n > 0 and not ctrl.is_decided():
+                shortfall = max(shortfall, ctrl.required_pass_rate - ctrl.p_hat)
+        return shortfall
+
     def select_arm(self) -> int:
         """Select the next arm to pull.
 
@@ -834,8 +855,9 @@ class BanditEngine:
         deterministic (MCSS ordering is fixed at init time); no RNG is used.
 
         Phase 2 (UCB1): once all arms have been pulled at least once, select
-        the arm with the highest UCB1 index. Ties are broken uniformly at
-        random via self._rng (deterministic under fixed seed).
+        the arm with the highest UCB1 index, plus risk_bonus * _risk_score()
+        when risk_bonus is configured. Ties are broken uniformly at random
+        via self._rng (deterministic under fixed seed).
 
         Arms with all mandatory controls already decided are skipped in both
         phases, as are arms whose suite has run out of probes.
@@ -862,6 +884,7 @@ class BanditEngine:
         t = self._step + 1
         ucb_scores = [
             self._arms[i].ucb_value(t, self._exploration_constant)
+            + self._risk_bonus * self._risk_score(self._arms[i])
             for i in available
         ]
         best_score = max(ucb_scores)
